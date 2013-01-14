@@ -1,5 +1,7 @@
 package com.bazaarvoice.dropwizard.webjars;
 
+import static java.util.concurrent.TimeUnit.MINUTES;
+
 import com.google.common.base.Objects;
 import com.google.common.base.Optional;
 import com.google.common.base.Splitter;
@@ -7,6 +9,7 @@ import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheBuilderSpec;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
+import com.google.common.cache.Weigher;
 import com.google.common.hash.Hashing;
 import com.google.common.io.ByteStreams;
 import com.google.common.io.Closeables;
@@ -59,14 +62,27 @@ public class WebJarResource {
 
     private final LoadingCache<AssetId, Asset> assetCache;
 
-    @SuppressWarnings("UnusedDeclaration")
-    public WebJarResource() {
-        assetCache = CacheBuilder.newBuilder().maximumSize(100).softValues().build(ASSET_LOADER);
+	public WebJarResource() {
+		// Cache doesn't need to be very big as we have Server OS cache, browser
+		// cacge and proxy caches too. But we do need limits to avoid using up
+		// all the heap space. The guava docs advise against soft values, so we
+		// use byte size and a maxium age to limit the size. See
+		// http://code.google.com/p/guava-libraries/wiki/CachesExplained
+        assetCache = CacheBuilder.newBuilder()
+        		.maximumWeight(2 * 1024 * 1024) // Max number of bytes in cache
+        		.weigher(new AssetSizeWeigher())
+        		.expireAfterAccess(5, MINUTES)
+        		.build(ASSET_LOADER);
     }
 
-    @SuppressWarnings("UnusedDeclaration")
     public WebJarResource(CacheBuilderSpec spec) {
-        assetCache = CacheBuilder.from(spec).build(ASSET_LOADER);
+        assetCache = CacheBuilder.from(spec)
+        		.weigher(new AssetSizeWeigher())
+        		.build(ASSET_LOADER);
+    }
+    
+    public WebJarResource(String spec) {
+        this(CacheBuilderSpec.parse(spec));
     }
 
     @GET
@@ -111,7 +127,16 @@ public class WebJarResource {
                 .build();
     }
 
-    private static final class AssetId {
+    /** Weigh an asset according to the number of bytes it contains. */
+    private static final class AssetSizeWeigher implements Weigher<AssetId, Asset> {
+		@Override
+		public int weigh(AssetId key, Asset asset) {
+			// return file sze in bytes
+			return asset.bytes.length;
+		}
+	}
+
+	private static final class AssetId {
         public final String library;
         public final String resource;
 
@@ -182,7 +207,9 @@ public class WebJarResource {
 
     /** Cache loader that knows how to load the contents of WebJar assets. */
     private static final CacheLoader<AssetId, Asset> ASSET_LOADER = new CacheLoader<AssetId, Asset>() {
-        final LoadingCache<String, String> versionCache = CacheBuilder.newBuilder().build(LIBRARY_VERSION_LOADER);
+        final LoadingCache<String, String> versionCache = CacheBuilder.newBuilder()
+        		.maximumSize(10)
+        		.build(LIBRARY_VERSION_LOADER);
 
         @Override
         public Asset load(AssetId id) throws Exception {
