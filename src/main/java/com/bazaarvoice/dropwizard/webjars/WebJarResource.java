@@ -76,7 +76,13 @@ public class WebJarResource {
     }
 
     public WebJarResource(CacheBuilderSpec spec) {
-        assetCache = CacheBuilder.from(spec).build(ASSET_LOADER);
+        assetCache = CacheBuilder.from(spec)
+        		.weigher(new AssetSizeWeigher())
+        		.build(ASSET_LOADER);
+    }
+    
+    public WebJarResource(String spec) {
+        this(CacheBuilderSpec.parse(spec));
     }
 
     @GET
