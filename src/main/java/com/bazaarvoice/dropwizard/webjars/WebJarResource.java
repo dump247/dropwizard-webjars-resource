@@ -2,23 +2,6 @@ package com.bazaarvoice.dropwizard.webjars;
 
 import static java.util.concurrent.TimeUnit.MINUTES;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.net.URL;
-import java.util.Date;
-import java.util.Properties;
-
-import javax.ws.rs.GET;
-import javax.ws.rs.HeaderParam;
-import javax.ws.rs.Path;
-import javax.ws.rs.PathParam;
-import javax.ws.rs.core.MediaType;
-import javax.ws.rs.core.Response;
-
-import org.eclipse.jetty.http.MimeTypes;
-import org.eclipse.jetty.io.Buffer;
-import org.eclipse.jetty.io.ByteArrayBuffer;
-
 import com.google.common.base.Objects;
 import com.google.common.base.Optional;
 import com.google.common.base.Splitter;
@@ -34,6 +17,21 @@ import com.google.common.io.Resources;
 import com.google.common.net.HttpHeaders;
 import com.google.common.util.concurrent.UncheckedExecutionException;
 import com.sun.jersey.spi.resource.Singleton;
+import org.eclipse.jetty.http.MimeTypes;
+import org.eclipse.jetty.io.Buffer;
+import org.eclipse.jetty.io.ByteArrayBuffer;
+
+import javax.ws.rs.GET;
+import javax.ws.rs.HeaderParam;
+import javax.ws.rs.Path;
+import javax.ws.rs.PathParam;
+import javax.ws.rs.core.MediaType;
+import javax.ws.rs.core.Response;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.URL;
+import java.util.Date;
+import java.util.Properties;
 
 /**
  * A resource to include in a Jersey application that will allow it to serve WebJar resources from out of the classpath.
@@ -72,12 +70,7 @@ public class WebJarResource {
 		// http://code.google.com/p/guava-libraries/wiki/CachesExplained
         assetCache = CacheBuilder.newBuilder()
         		.maximumWeight(2 * 1024 * 1024) // Max number of bytes in cache
-        		.weigher(new Weigher<AssetId, Asset>() {
-					@Override
-					public int weigh(AssetId key, Asset value) {
-						// return file sze in bytes
-						return value.bytes.length;
-					}})
+        		.weigher(new AssetSizeWeigher())
         		.expireAfterAccess(5, MINUTES)
         		.build(ASSET_LOADER);
     }
@@ -128,7 +121,16 @@ public class WebJarResource {
                 .build();
     }
 
-    private static final class AssetId {
+    /** Weigh an asset according to the number of bytes it contains. */
+    private static final class AssetSizeWeigher implements Weigher<AssetId, Asset> {
+		@Override
+		public int weigh(AssetId key, Asset asset) {
+			// return file sze in bytes
+			return asset.bytes.length;
+		}
+	}
+
+	private static final class AssetId {
         public final String library;
         public final String resource;
 
@@ -200,7 +202,7 @@ public class WebJarResource {
     /** Cache loader that knows how to load the contents of WebJar assets. */
     private static final CacheLoader<AssetId, Asset> ASSET_LOADER = new CacheLoader<AssetId, Asset>() {
         final LoadingCache<String, String> versionCache = CacheBuilder.newBuilder()
-        		.maximumSize(10) // need to limit to avoid OOME
+        		.maximumSize(10)
         		.build(LIBRARY_VERSION_LOADER);
 
         @Override
@@ -229,11 +231,15 @@ public class WebJarResource {
             // and over starting with the most specific version number, then stripping a suffix off at a time until
             // there are no more suffixes and the right version number is determined.
             do {
-                String path = String.format("META-INF/resources/webjars/%s/%s", id.library, id.resource);
+                String path = String.format("META-INF/resources/webjars/%s/%s/%s", id.library, version, id.resource);
                 URL resource;
 
                 try {
                     resource = Resources.getResource(path);
+
+                    // We know that this version was valid.  Update the version cache to make sure that we remember it
+                    // for next time around.
+                    versionCache.put(id.library, version);
 
                     return new Asset(ByteStreams.toByteArray(resource.openStream()));
                 } catch(IllegalArgumentException e) {
