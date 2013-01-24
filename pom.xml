@@ -46,6 +46,12 @@
       <version>8.1.8.v20121106</version>
     </dependency>
 
+    <dependency>
+      <groupId>org.webjars</groupId>
+      <artifactId>bootstrap</artifactId>
+      <version>2.2.2</version>
+      <scope>test</scope>
+    </dependency>
 
     <dependency>
       <groupId>junit</groupId>
@@ -62,7 +68,6 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
                     <additionalClasspathElements>
-                        <additionalClasspathElement>${project.build.testOutputDirectory}/testable-jars/bootstrap-2.2.2.jar</additionalClasspathElement>
                         <additionalClasspathElement>${project.build.testOutputDirectory}/testable-jars/another-bootstrap-2.2.3-1-SNAPSHOT.jar</additionalClasspathElement>
                     </additionalClasspathElements>
                 </configuration>
