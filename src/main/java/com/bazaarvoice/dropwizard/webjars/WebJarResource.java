@@ -1,7 +1,5 @@
 package com.bazaarvoice.dropwizard.webjars;
 
-import static java.util.concurrent.TimeUnit.MINUTES;
-
 import com.google.common.base.Objects;
 import com.google.common.base.Optional;
 import com.google.common.base.Splitter;
@@ -10,9 +8,11 @@ import com.google.common.cache.CacheBuilderSpec;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.google.common.cache.Weigher;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Iterables;
+import com.google.common.collect.Lists;
 import com.google.common.hash.Hashing;
 import com.google.common.io.ByteStreams;
-import com.google.common.io.Closeables;
 import com.google.common.io.Resources;
 import com.google.common.net.HttpHeaders;
 import com.google.common.util.concurrent.UncheckedExecutionException;
@@ -28,10 +28,10 @@ import javax.ws.rs.PathParam;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import java.io.IOException;
-import java.io.InputStream;
 import java.net.URL;
 import java.util.Date;
-import java.util.Properties;
+
+import static java.util.concurrent.TimeUnit.MINUTES;
 
 /**
  * A resource to include in a Jersey application that will allow it to serve WebJar resources from out of the classpath.
@@ -59,30 +59,44 @@ public class WebJarResource {
     private static final Splitter ETAG_SPLITTER = Splitter.on(',').omitEmptyStrings().trimResults();
     private static final MimeTypes MIME_TYPES = new MimeTypes();
     private static final Buffer DEFAULT_MIME_TYPE = new ByteArrayBuffer(MediaType.TEXT_HTML);
+    private static final Iterable<String> DEFAULT_WEBJAR_PACKAGES = Lists.newArrayList("org.webjars");
 
     private final LoadingCache<AssetId, Asset> assetCache;
 
     public WebJarResource() {
+        AssetCacheLoader assetCacheLoader = buildAssetCacheLoader(DEFAULT_WEBJAR_PACKAGES);
+        assetCache = buildDefaultAssetCache(assetCacheLoader);
+    }
+
+    public WebJarResource(String spec, Iterable<String> additionalWebjarPackages) {
+        AssetCacheLoader assetCacheLoader = buildAssetCacheLoader(Iterables.concat(DEFAULT_WEBJAR_PACKAGES, ImmutableList.copyOf(additionalWebjarPackages)));
+
+        if (spec != null) {
+            assetCache = CacheBuilder.from(CacheBuilderSpec.parse(spec))
+                .weigher(new AssetSizeWeigher())
+                .build(assetCacheLoader);
+        } else {
+            assetCache = buildDefaultAssetCache(assetCacheLoader);
+        }
+    }
+
+    private AssetCacheLoader buildAssetCacheLoader(Iterable<String> webJarPackages) {
+        LibraryVersionLoader libraryVersionLoader = new LibraryVersionLoader(webJarPackages);
+        return new AssetCacheLoader(libraryVersionLoader);
+    }
+
+    private LoadingCache<AssetId, Asset> buildDefaultAssetCache(CacheLoader<AssetId, Asset> assetCacheLoader) {
         // Cache doesn't need to be very big as we have Server OS cache, browser
         // cache and proxy caches too. But we do need limits to avoid using up
         // all the heap space. The guava docs advise against soft values, so we
         // use byte size and a maximum age to limit the size. See
         // http://code.google.com/p/guava-libraries/wiki/CachesExplained
-        assetCache = CacheBuilder.newBuilder()
-                .maximumWeight(2 * 1024 * 1024) // Max number of bytes in cache
-                .weigher(new AssetSizeWeigher())
-                .expireAfterAccess(5, MINUTES)
-                .build(ASSET_LOADER);
-    }
 
-    public WebJarResource(CacheBuilderSpec spec) {
-        assetCache = CacheBuilder.from(spec)
-                .weigher(new AssetSizeWeigher())
-                .build(ASSET_LOADER);
-    }
-
-    public WebJarResource(String spec) {
-        this(CacheBuilderSpec.parse(spec));
+        return CacheBuilder.newBuilder()
+            .maximumWeight(2 * 1024 * 1024) // Max number of bytes in cache
+            .weigher(new AssetSizeWeigher())
+            .expireAfterAccess(5, MINUTES)
+            .build(assetCacheLoader);
     }
 
     @GET
@@ -174,42 +188,17 @@ public class WebJarResource {
         }
     }
 
-    /**
-     * Cache loader that knows how to determine the version of a specific webjar.  This loader will look for the
-     * {@code pom.properties} file is included inside of each webjar.
-     */
-    private static final CacheLoader<String, String> LIBRARY_VERSION_LOADER = new CacheLoader<String, String>() {
-        @Override
-        public String load(String library) throws Exception {
-            String path = String.format("META-INF/maven/org.webjars/%s/pom.properties", library);
-            URL url;
-            try {
-                url = Resources.getResource(path);
-            } catch (IllegalArgumentException e) {
-                return null;
-            }
 
-            try {
-                InputStream in = url.openStream();
-                try {
-                    Properties props = new Properties();
-                    props.load(in);
+    private static class AssetCacheLoader extends CacheLoader<AssetId, Asset> {
+        private final CacheLoader<String,String> libraryVersionLoader;
+        private final LoadingCache<String, String> versionCache;
 
-                    return props.getProperty("version");
-                } finally {
-                    Closeables.closeQuietly(in);
-                }
-            } catch (IOException e) {
-                return null;
-            }
+        private AssetCacheLoader(CacheLoader<String, String> libraryVersionLoader) {
+            this.libraryVersionLoader = libraryVersionLoader;
+            versionCache = CacheBuilder.newBuilder()
+                    .maximumSize(10)
+                    .build(this.libraryVersionLoader);
         }
-    };
-
-    /** Cache loader that knows how to load the contents of WebJar assets. */
-    private static final CacheLoader<AssetId, Asset> ASSET_LOADER = new CacheLoader<AssetId, Asset>() {
-        final LoadingCache<String, String> versionCache = CacheBuilder.newBuilder()
-                .maximumSize(10)
-                .build(LIBRARY_VERSION_LOADER);
 
         @Override
         public Asset load(AssetId id) throws Exception {
@@ -262,5 +251,5 @@ public class WebJarResource {
             }
             while(true);
         }
-    };
+    }
 }
