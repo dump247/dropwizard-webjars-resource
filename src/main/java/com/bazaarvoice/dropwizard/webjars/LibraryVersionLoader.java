@@ -28,7 +28,8 @@ class LibraryVersionLoader extends CacheLoader<String, String> {
                 return found;
             }
         }
-        return null;
+
+        throw new LibraryNotFoundException(library);
     }
 
     private String tryToLoadFrom(String format, String searchPackage, String library) {
@@ -52,6 +53,20 @@ class LibraryVersionLoader extends CacheLoader<String, String> {
             }
         } catch (IOException e) {
             return null;
+        }
+    }
+
+    private static class LibraryNotFoundException extends RuntimeException {
+        private final String library;
+
+        private LibraryNotFoundException(String library) {
+            super("Library not found: " + library);
+            this.library = library;
+        }
+
+        private LibraryNotFoundException(String library, Throwable cause) {
+            super("Library not found: " + library, cause);
+            this.library = library;
         }
     }
 }
