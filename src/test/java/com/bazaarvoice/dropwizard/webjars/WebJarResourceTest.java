@@ -67,4 +67,14 @@ public class WebJarResourceTest {
         response = webJarResource.getAsset("non-existent-bootstrap", "css/bootstrap.css", null, null);
         assertTrue(response.getStatus() == 404);
     }
+
+    @Test
+    public void ensureHyphenatedPathDoesntDie() throws Exception {
+        WebJarResource webJarResource = new WebJarResourceBuilder().build();
+        Response response = webJarResource.getAsset("bootstrap", "css/bootstrap-file.css", null, null);
+        assertTrue(response.getStatus() == 404);
+
+        response = webJarResource.getAsset("bootstrap", "css/bootstrap-file.css", null, null);
+        assertTrue(response.getStatus() == 404);
+    }
 }

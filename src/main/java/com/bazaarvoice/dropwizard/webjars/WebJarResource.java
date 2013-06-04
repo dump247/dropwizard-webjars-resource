@@ -1,5 +1,10 @@
 package com.bazaarvoice.dropwizard.webjars;
 
+import com.sun.jersey.spi.resource.Singleton;
+import org.eclipse.jetty.http.MimeTypes;
+import org.eclipse.jetty.io.Buffer;
+import org.eclipse.jetty.io.ByteArrayBuffer;
+
 import com.google.common.base.Objects;
 import com.google.common.base.Optional;
 import com.google.common.base.Splitter;
@@ -16,10 +21,6 @@ import com.google.common.io.ByteStreams;
 import com.google.common.io.Resources;
 import com.google.common.net.HttpHeaders;
 import com.google.common.util.concurrent.UncheckedExecutionException;
-import com.sun.jersey.spi.resource.Singleton;
-import org.eclipse.jetty.http.MimeTypes;
-import org.eclipse.jetty.io.Buffer;
-import org.eclipse.jetty.io.ByteArrayBuffer;
 
 import javax.ws.rs.GET;
 import javax.ws.rs.HeaderParam;
@@ -172,6 +173,11 @@ public class WebJarResource {
         public int hashCode() {
             return Objects.hashCode(library, resource);
         }
+
+        @Override
+        public String toString() {
+            return library + ":" + resource;
+        }
     }
 
     private static final class Asset {
@@ -206,7 +212,7 @@ public class WebJarResource {
             try {
                 version = versionCache.getUnchecked(id.library);
             } catch (UncheckedExecutionException e) {
-                return null;
+                throw new AssetNotFoundException(id, e);
             }
 
             // Sometimes the WebJar has multiple releases which gets represented by a -# suffix to the version number
@@ -244,12 +250,26 @@ public class WebJarResource {
                 // Trim a suffix off of the version number
                 int hyphen = version.lastIndexOf('-');
                 if (hyphen == -1) {
-                    return null;
+                    throw new AssetNotFoundException(id);
                 }
 
                 version = version.substring(0, hyphen);
             }
             while(true);
+        }
+    }
+
+    private static class AssetNotFoundException extends RuntimeException {
+        private final AssetId assetId;
+
+        public AssetNotFoundException(AssetId assetId) {
+            super("Asset not found: " + assetId);
+            this.assetId = assetId;
+        }
+
+        public AssetNotFoundException(AssetId assetId, Throwable cause) {
+            super("Asset not found: " + assetId, cause);
+            this.assetId = assetId;
         }
     }
 }
