@@ -1,7 +1,6 @@
 package com.bazaarvoice.dropwizard.webjars;
 
 import com.google.common.cache.CacheLoader;
-import com.google.common.io.Closeables;
 import com.google.common.io.Resources;
 
 import java.io.IOException;
@@ -49,7 +48,7 @@ class LibraryVersionLoader extends CacheLoader<String, String> {
 
                 return props.getProperty("version");
             } finally {
-                Closeables.closeQuietly(in);
+                in.close();
             }
         } catch (IOException e) {
             return null;
